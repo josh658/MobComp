@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentActivity;
+import android.support.v4.app.JobIntentService;
 import android.support.v4.content.ContextCompat;
 import android.util.Log;
 import android.widget.Toast;
@@ -37,6 +38,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 
@@ -49,7 +51,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private static final float DEFAULT_ZOOM = 15f;
 
     //RESTAURANT LOCATOR VAR
-    private static int radius= 1000;
+    private static int radius= 3000;
 
 
     //PERMISSION VARS
@@ -181,13 +183,18 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
      */
 
 
+    /*TODO : FIX 20 COUNT
+    * Fix bug that long allows me to get 20 restaurant location,
+    * this will probably be an issue in the parser
+    * https://developers.google.com/places/web-service/search
+    */
+
     public StringBuilder sbMethod(Location mCurrentLocation){
 
         StringBuilder sb = new StringBuilder("https://maps.googleapis.com/maps/api/place/nearbysearch/json?");
         sb.append("location=" + mCurrentLocation.getLatitude() + "," + mCurrentLocation.getLongitude());
         sb.append("&radius=" + radius);
         sb.append("&type=restaurant");
-        sb.append("&sensor=true");
         sb.append("&key=AIzaSyDLb-QtLNo4vaHBBPglmVSzoVGECCs6d_Y");
 
         Log.d(TAG, "StringBuilder: " + sb.toString());
@@ -195,7 +202,18 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         return sb;
     }
 
-    private class PlacesTask extends AsyncTask<String, Integer, String>{
+    public StringBuilder sbMethod(String pageToken){
+
+        StringBuilder sb = new StringBuilder("https://maps.googleapis.com/maps/api/place/nearbysearch/json?");
+        sb.append("pagetoken=" + pageToken);
+        sb.append("&key=AIzaSyDLb-QtLNo4vaHBBPglmVSzoVGECCs6d_Y");
+
+        Log.d(TAG, "StringBuilder: " + sb.toString());
+
+        return sb;
+    }
+
+    private class PlacesTask extends AsyncTask<String, Integer, String> {
         String data = null;
 
         @Override
@@ -221,34 +239,40 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         String data = "";
         InputStream iStream = null;
         HttpURLConnection urlConnection = null;
-        try{
-            URL url = new URL(stringURL);
+        Log.d(TAG, "StringURL: " + stringURL);
 
-            urlConnection = (HttpURLConnection) url.openConnection();
+        do{
+            try {
+                URL url = new URL(stringURL);
 
-            urlConnection.connect();
+                urlConnection = (HttpURLConnection) url.openConnection();
 
-            iStream = urlConnection.getInputStream();
+                urlConnection.connect();
 
-            BufferedReader br = new BufferedReader(new InputStreamReader(iStream));
+                iStream = urlConnection.getInputStream();
 
-            StringBuffer sb = new StringBuffer();
+                BufferedReader br = new BufferedReader(new InputStreamReader(iStream));
 
-            String line = "";
-            while((line = br.readLine()) != null){
-                sb.append(line);
+                StringBuffer sb = new StringBuffer();
+
+                String line = "";
+                while ((line = br.readLine()) != null) {
+                    sb.append(line);
+                }
+                Log.d(TAG, "downloadURL: Line " + line);
+
+                data = sb.toString();
+
+                br.close();
+            } catch (Exception e) {
+                Log.d(TAG, "DownloadURL: FAILURE while downloading URL" + e.toString());
+
+            } finally {
+                iStream.close();
+                urlConnection.disconnect();
             }
-
-            data = sb.toString();
-
-            br.close();
-        } catch (Exception e){
-            Log.d(TAG, "DownloadURL: FAILURE while downloading URL" + e.toString() );
-
-        }finally{
-            iStream.close();
-            urlConnection.disconnect();
-        }
+            //TODO
+        }while (data.contains("INVALID_REQUEST"));
         Log.d(TAG,"DownloadURL: data = " + data.toString());
         return data;
     }
@@ -276,7 +300,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         protected void onPostExecute(List<HashMap<String, String>> list) {
 
             Log.d(TAG, "ParserTask: onPost; List size = " + list.size());
-            mMap.clear();
+            //mMap.clear();
 
             for(int i = 0; i < list.size(); i++){
                 MarkerOptions markerOptions = new MarkerOptions();
@@ -295,27 +319,91 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
     }
 
+    /*
+    TODO: clean up code
+        lots of logs and a method that didn't work but would be more efficient
+
+     */
+
+    private JSONArray concatArray(JSONArray... arrs)throws JSONException{
+        JSONArray result = new JSONArray();
+        for (JSONArray arr : arrs){
+            for (int i = 0; i<arr.length(); i++){
+                result.put(arr.get(i));
+            }
+        }
+        return result;
+    }
+
     public class Place_JSON{
         public List<HashMap<String, String>> parse (JSONObject jObject){
             JSONArray jPlaces = null;
+            JSONArray tmp = null;
+            List<HashMap<String,String>> fullList = new ArrayList<>();
             try{
                 jPlaces = jObject.getJSONArray("results");
+                fullList = getPlaces(jPlaces);
+                //Log.d(TAG,"place_JSON: !jObject.isNull('next_page_token')" + !jObject.isNull("next_page_token") + "\n page token = " + jObject.getString("next_page_token"));
+
+                //Log.d(TAG, "Place_JSON: results; " + jPlaces.toString());
+
+                //Log.d(TAG, "Place_JSON: parse; sbMethod = " + sbMethod(jObject.getString("next_page_token")).toString());
+
+
+                Log.d(TAG, "Place_JSON: results; " + jPlaces.toString(1));
+
+                while (!jObject.isNull("next_page_token")) {
+                    //Log.d(TAG,"place_JSON: !jObject.isNull('next_page_token')" + !jObject.isNull("next_page_token"));
+                    jObject = new JSONObject(downloadURL(sbMethod(jObject.getString("next_page_token")).toString()));
+                    tmp = jObject.getJSONArray("results");
+                    fullList.addAll(getPlaces(tmp));
+
+                    //Log.d(TAG, "Place_JSON: jObject; " + jObject.toString());
+                    //jPlaces.join( jObject.getJSONArray("results").toString());
+                    //Log.d(TAG, "Place_JSON: results; " + jPlaces.toString(1));
+                }
+
+
+
+
+                //Log.d(TAG, "Place_JSON: jPlace; " + jPlaces.toString(1));
+
+                //jPlaces.append(secondPage.getJSONArray("results");
+
+                /*
+                TODO: optimize
+                this is very slow because it is a recursive call but it works for up to 60 restaurants.
+                 */
+
+                /*
+                if(!jObject.isNull("next_page_token")){
+                    StringBuilder sbValue = new StringBuilder(sbMethod(jObject.getString("next_page_token")));
+                    PlacesTask placesTask = new PlacesTask();
+                    placesTask.execute(sbValue.toString());
+                }
+                */
+
+
             } catch (JSONException e){
+                e.printStackTrace();
+            } catch (IOException e) {
                 e.printStackTrace();
             }
 
-            return getPlaces(jPlaces);
+            return fullList;
         }
 
         private List<HashMap<String, String>> getPlaces(JSONArray jPlaces){
             int placesCount = jPlaces.length();
             List<HashMap<String,String>> placesList = new ArrayList<HashMap<String, String>>();
             HashMap<String, String> place = null;
+            Log.d(TAG, "PlaceCount = " + placesCount);
 
             for (int i =0; i < placesCount; i++){
                 try{
                     place = getPlace((JSONObject) jPlaces.get(i));
                     placesList.add(place);
+                    Log.d(TAG, "getPlace: place = " + place.toString());
                 } catch (JSONException e){
                     e.printStackTrace();
                 }
