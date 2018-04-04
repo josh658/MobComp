@@ -127,8 +127,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         switch (requestCode) {
             case REQUEST_CODE: {
                 if (grantResults.length > 0) {
-                    for (int i = 0; i < grantResults.length; i++) {
-                        if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                    for (int grantResult : grantResults) {
+                        if (grantResult != PackageManager.PERMISSION_GRANTED) {
                             mLocationPermissionsGranted = false;
                             return;
                         }
@@ -325,16 +325,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
      */
 
-    private JSONArray concatArray(JSONArray... arrs)throws JSONException{
-        JSONArray result = new JSONArray();
-        for (JSONArray arr : arrs){
-            for (int i = 0; i<arr.length(); i++){
-                result.put(arr.get(i));
-            }
-        }
-        return result;
-    }
-
     public class Place_JSON{
         public List<HashMap<String, String>> parse (JSONObject jObject){
             JSONArray jPlaces = null;
@@ -389,6 +379,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             } catch (IOException e) {
                 e.printStackTrace();
             }
+
+            fullList = rando(fullList);
 
             return fullList;
         }
@@ -453,4 +445,10 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     /*
     -----------------------------------Random Algorithm---------------------------------------------
      */
+    public List<HashMap<String, String>> rando(List<HashMap<String, String>> places){
+        List<HashMap<String, String>> tmp = new ArrayList<>();
+        tmp.add(places.get((int)(Math.random()*places.size())));
+
+        return tmp;
+    }
 }
